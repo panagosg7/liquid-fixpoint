@@ -1,4 +1,7 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | This module has the functions that perform sort-checking, and related
 -- operations on Fixpoint expressions and predicates.
@@ -31,12 +34,12 @@ module Language.Fixpoint.Sort  (
 
 import           Control.Applicative
 import           Control.Monad
-import           Control.Monad.Error       (catchError, throwError)
+import           Control.Monad.Error       (MonadError(..))
 import qualified Data.HashMap.Strict       as M
 import           Data.Maybe                (mapMaybe, fromMaybe)
 
 import           Language.Fixpoint.Misc
-import           Language.Fixpoint.Types
+import           Language.Fixpoint.Types hiding (subst)
 import           Language.Fixpoint.Visitor (foldSort)
 
 import           Text.PrettyPrint.HughesPJ
@@ -59,9 +62,40 @@ isFirstOrder t      = foldSort f 0 t <= 1
 
 -- | Types used throughout checker
 
-type CheckM a = Either String a
+newtype CheckM a = CM {runCM :: Int -> Either String a}
 type Env      = Symbol -> SESearch Sort
 
+instance Monad CheckM where
+  return x     = CM $ \_ -> Right x
+  (CM m) >>= f = CM $ \i -> case m i of 
+                             Left s  -> Left s
+                             Right x -> runCM (f x) i 
+
+
+instance MonadError String CheckM where
+  throwError s = CM $ \_ -> Left s 
+  (CM m) `catchError` f = CM $ \i -> case m i of 
+                                      Left s -> runCM (f s) i 
+                                      Right x -> Right x
+
+instance Functor CheckM where
+  fmap f (CM m) = CM $ \i -> case m i of {Left s -> Left s; Right x -> Right $ f x}
+
+initCM = 0 
+runCM0 act = runCM act initCM
+
+class Freshable a where
+  fresh   :: CheckM a
+  refresh :: a -> CheckM a  
+  refresh _ = fresh 
+
+instance Freshable Int where
+  fresh = CM Right
+
+
+instance Freshable [Int] where
+  fresh   = mapM (\_ -> fresh) [0..]
+  refresh = mapM refresh  
 
 -------------------------------------------------------------------------
 -- | Checking Refinements -----------------------------------------------
@@ -76,7 +110,7 @@ checkSortedReft env xs sr = applyNonNull Nothing error unknowns
 
 checkSortedReftFull :: Checkable a => SEnv SortedReft -> a -> Maybe Doc
 checkSortedReftFull γ t
-  = case check γ' t of
+  = case runCM0 $ check γ' t of
       Left err -> Just (text err)
       Right _  -> Nothing
     where
@@ -84,7 +118,7 @@ checkSortedReftFull γ t
 
 checkSortFull :: Checkable a => SEnv SortedReft -> Sort -> a -> Maybe Doc
 checkSortFull γ s t
-  = case checkSort γ' s t of
+  = case runCM0 $ checkSort γ' s t of
       Left err -> Just (text err)
       Right _  -> Nothing
     where
@@ -92,7 +126,7 @@ checkSortFull γ s t
 
 checkSorted :: Checkable a => SEnv Sort -> a -> Maybe Doc
 checkSorted γ t
-  = case check γ t of
+  = case runCM0 $ check γ t of
       Left err -> Just (text err)
       Right _  -> Nothing
 
@@ -106,8 +140,8 @@ pruneUnsortedReft γ (RR s (Reft (v, Refa p))) = RR s (Reft (v, tx p))
 
 checkPred' f p = res -- traceFix ("checkPred: p = " ++ showFix p) $ res
   where
-    res        = case checkPred f p of
-                   Left war -> {- trace (wmsg war p) -} Nothing
+    res        = case runCM0 $ checkPred f p of
+                   Left _ -> {- trace (wmsg war p) -} Nothing
                    Right _  -> Just p
 
 class Checkable a where
@@ -327,7 +361,7 @@ fVars _            = []
 -------------------------------------------------------------------------
 unify :: Sort -> Sort -> Maybe TVSubst
 -------------------------------------------------------------------------
-unify t1 t2 = case unify1 emptySubst t1 t2 of
+unify t1 t2 = case runCM0 $ unify1 emptySubst t1 t2 of
                 Left _   -> Nothing
                 Right su -> Just su
 
@@ -344,15 +378,28 @@ unifyMany θ ts ts'
 unify1 :: TVSubst -> Sort -> Sort -> CheckM TVSubst
 unify1 θ (FVar i) t         = unifyVar θ i t
 unify1 θ t (FVar i)         = unifyVar θ i t
-unify1 θ (FApp t1 t2) (FApp t1' t2')
-                            = unifyMany θ [t1, t2] [t1', t2']
+unify1 θ tt1@(FApp t1 t2) tt2@(FApp t1' t2')
+                            = unifyMany θ [t1, t2] $ traceShow ("HERE" ++ show (tt1, tt2)) [t1', t2']
 unify1 θ (FTC l1) (FTC l2) 
-  | isListTC l1 && isListTC l2     = return θ 
-unify1 θ (FFunc _ ts1) (FFunc _ ts2) = unifyMany θ ts1 ts2 
+  | isListTC l1 && isListTC l2         = return θ 
+unify1 θ (FFunc _ ts1) (FFunc _ ts2)   = unifyMany θ ts1 ts2 
+unify1 θ tt1@(FFunc i [t1]) t2         = do vs <- refresh [0..i-1] 
+                                            unifyMany θ [subst (zip [0..(i-1)] (FVar <$> vs)) t1] $ traceShow ("HACK\n\n" ++ show (tt1) ++ "\nUNIFY\n" ++ show t2) [t2] 
+unify1 θ t1 tt2@(FFunc i [t2])         = do vs <- refresh [0..i-1]
+                                            unifyMany θ [t1] $ traceShow ("HACK\n\n" ++ show (t1) ++ "\nUNIFY\n" ++ show tt2) [subst (zip [0..(i-1)] (FVar <$> vs)) t2] 
 unify1 θ t1 t2
   | t1 == t2                = return θ
-  | otherwise               = throwError $ errUnify t1 t2
+  | FApp _ _<- t1           = throwError $ errUnify t1 $ traceShow ("HERE1\n" ++ show (t1, t2)) t2
+  | FApp _ _<- t2           = throwError $ errUnify t1 $ traceShow ("HERE2\n" ++ show (t1, t2)) t2
+  | FApp _ _ <- t1, FApp _ _<- t2           = throwError $ errUnify t1 $ traceShow ("HERE3\n" ++ show (t1, t2)) t2
+  | otherwise               = throwError $ errUnify t1 $ traceShow ("HERE4\n" ++ show (t1, t2)) t2
 -- unify1 _ FNum _          = Nothing
+
+
+subst su t@(FVar i) = fromMaybe t (lookup i su) 
+subst su (FApp t1 t2) = FApp (subst su t1) (subst su t2)
+subst _  (FTC l)      = FTC l
+subst su (FFunc i ts)   = FFunc i (subst su <$> ts)
 
 unifyVar :: TVSubst -> Int -> Sort -> CheckM TVSubst
 unifyVar θ i t@(FVar j)
@@ -363,7 +410,7 @@ unifyVar θ i t@(FVar j)
 unifyVar θ i t
   = case lookupVar i θ of
       Just (FVar j) -> return $ updateVar i t $ updateVar j t θ 
-      Just t'       -> if t == t' then return θ else throwError (errUnify t t')
+      Just t'       -> if t == t' then return θ else unify1 θ t t' --  throwError (errUnify t $ traceShow ("HERE5\n" ++ show (i, t, t')) t')
       Nothing       -> return $ updateVar i t θ
 
 -------------------------------------------------------------------------
@@ -401,7 +448,7 @@ sortFunction t             = throwError $ errNonFunction t
 -- | API for manipulating Sort Substitutions ---------------------------
 ------------------------------------------------------------------------
 
-newtype TVSubst = Th (M.HashMap Int Sort)
+newtype TVSubst = Th (M.HashMap Int Sort) deriving (Show)
 
 lookupVar :: Int -> TVSubst -> Maybe Sort
 lookupVar i (Th m)   = M.lookup i m

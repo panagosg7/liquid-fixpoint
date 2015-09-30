@@ -368,7 +368,29 @@ data Sort = FInt
           | FFunc !Int ![Sort]   -- ^ type-var arity, in-ts ++ [out-t]
           | FTC   FTycon
           | FApp  Sort Sort      -- ^ constructed type
-              deriving (Eq, Ord, Show, Data, Typeable, Generic)
+              deriving (Eq, Ord, Data, Typeable, Generic)
+
+
+instance Show Sort where
+  show FInt          = "int"
+  show FReal         = "real"
+  show FNum          = "num"
+  show FFrac         = "frac"
+  show (FObj s)      = show s 
+  show (FVar i)      = "@" ++ show i
+  show (FFunc i s)   = show_forall i ++ "(" ++ (show_list " " $ init s) ++ ")" ++ " -> " ++ show (last s)
+  show (FTC (TC tc)) = symbolString $ val tc 
+  show (FApp t1 t2)  = showFApp t1 ++ " " ++ showFApp t2 
+
+
+showFApp t@(FApp _ _) = "(" ++ show t ++ ")"
+showFApp t            = show t 
+
+show_forall i = "forall " ++ show_list " " [0 .. i-1] ++ "."
+
+show_list :: Show a => String -> [a] -> String 
+show_list sep = concatMap (\i -> sep ++ show i) 
+
 
 {-@ FFunc :: Nat -> ListNE Sort -> Sort @-}
 
@@ -456,17 +478,17 @@ data Bop  = Plus | Minus | Times | Div | Mod
             deriving (Eq, Ord, Show, Data, Typeable, Generic)
               -- NOTE: For "Mod" 2nd expr should be a constant or a var *)
 
-data Expr = ESym !SymConst
-          | ECon !Constant
-          | EVar !Symbol
-          | ELit !LocSymbol !Sort
-          | EApp !LocSymbol ![Expr]
-          | ENeg !Expr
-          | EBin !Bop !Expr !Expr
-          | EIte !Pred !Expr !Expr
-          | ECst !Expr !Sort
-          | EBot
-          deriving (Eq, Ord, Show, Data, Typeable, Generic)
+data Expr s = ESym !SymConst
+            | ECon !Constant
+            | EVar (Located s) 
+            | ELit (Located s) !Sort
+            | EApp (Located s) ![Expr]
+            | ENeg !Expr
+            | EBin !Bop !Expr !Expr
+            | EIte !Pred !Expr !Expr
+            | ECst !Expr !Sort
+            | EBot
+            deriving (Eq, Ord, Show, Data, Typeable, Generic)
 
 instance Fixpoint Integer where
   toFix = integer
