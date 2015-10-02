@@ -20,7 +20,7 @@ module Language.Fixpoint.Names (
   -- * Symbols
     Symbol
   , Symbolic (..)
-  , anfPrefix, tempPrefix, vv, isPrefixOfSym, isSuffixOfSym, stripParensSym
+  , anfPrefix, tempPrefix, vv, vv_, isPrefixOfSym, isSuffixOfSym, stripParensSym
   , consSym, unconsSym, dropSym, singletonSym, headSym, takeWhileSym, lengthSym
   , symChars, isNonSymbol, nonSymbol
   , isNontrivialVV
@@ -197,6 +197,9 @@ vv (Just i)         = symbol $ symbolText vvName `T.snoc` symSepName `mappend` T
 vv Nothing          = vvName
 
 vvCon               = symbol $ symbolText vvName `T.snoc` symSepName `mappend` "F" --  S (vvName ++ [symSepName] ++ "F")
+
+vv_                 :: Symbol
+vv_                 = vv Nothing
 
 isNontrivialVV      = not . (vv Nothing ==)
 

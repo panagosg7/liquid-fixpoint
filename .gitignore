@@ -5,6 +5,7 @@
 *.o
 /dist*
 
+/.stack-work/
 /.vagrant/
 /.stack-work/
 /build.sh

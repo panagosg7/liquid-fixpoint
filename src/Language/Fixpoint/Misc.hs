@@ -199,3 +199,10 @@ tshow              = text . show
 -- | if loud, write a string to stdout
 writeLoud :: String -> IO ()
 writeLoud = whenLoud . putStrLn
+
+
+hashMapToAscList :: Ord a => M.HashMap a b -> [(a, b)]
+hashMapToAscList = sortBy (\x y -> compare (fst x) (fst y)) . M.toList
+
+firstMaybe :: (a -> Maybe b) -> [a] -> Maybe b
+firstMaybe f = listToMaybe . mapMaybe f
