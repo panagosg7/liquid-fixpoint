@@ -213,7 +213,9 @@ checkExpr _ (ESym _)       = return strSort
 checkExpr _ (ECon (I _))   = return FInt
 checkExpr _ (ECon (R _))   = return FReal
 checkExpr _ (ECon (L _ s)) = return s
-checkExpr f (EVar x)       = checkSym f x
+checkExpr f (EVar x)       = do t <- checkSym f x 
+                                unless (not . isFFunc t) (throwError $ errPartialApp x)
+                                return t 
 checkExpr f (ENeg e)       = checkNeg f e
 checkExpr f (EBin o e1 e2) = checkOp f e1 o e2
 checkExpr f (EIte p e1 e2) = checkIte f p e1 e2
@@ -368,6 +370,9 @@ isAppTy :: Sort -> Bool
 isAppTy (FApp _ _) = True
 isAppTy _          = False
 
+isFFunc (FFunc _ (_:_:_)) = True 
+isFFunc _                 = False 
+
 
 -------------------------------------------------------------------------
 -- | Sort Unification
@@ -514,6 +519,7 @@ errIte e1 e2 t1 t2   = printf "Mismatched branches in Ite: then %s : %s, else %s
                          (showpp e1) (showpp t1) (showpp e2) (showpp t2)
 errCast e t' t       = printf "Cannot cast %s of sort %s to incompatible sort %s"
                          (showpp e) (showpp t') (showpp t)
+errPartialApp x      = printf "Function %s is not fully applied" (showpp x)
 errUnbound x         = printf "Unbound Symbol %s" (showpp x)
 errUnboundAlts x xs  = printf "Unbound Symbol %s\n Perhaps you meant: %s"
                         (showpp x)

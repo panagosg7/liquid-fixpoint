@@ -36,7 +36,8 @@ import           Language.Fixpoint.Solver.Graph     -- (slice)
 import           Language.Fixpoint.Solver.Validate  (sanitize)
 import           Language.Fixpoint.Solver.Eliminate (eliminateAll)
 import           Language.Fixpoint.Solver.Deps      (deps, Deps (..))
-import           Language.Fixpoint.Solver.Uniqify   (renameAll)
+import           Language.Fixpoint.Solver.UniqifyBinds (renameAll)
+import           Language.Fixpoint.Solver.UniqifyKVars (wfcUniqify)
 import qualified Language.Fixpoint.Solver.Solve     as Sol
 import           Language.Fixpoint.Solver.Solution  (Solution)
 import           Language.Fixpoint.Types.Config           (multicore, Config (..), command, withTarget)
@@ -48,8 +49,6 @@ import           Language.Fixpoint.Utils.Statistics (statistics)
 import           Language.Fixpoint.Partition        (mcInfo, partition, partition')
 import           Language.Fixpoint.Parse            (rr, rr', mkQual)
 import           Language.Fixpoint.Types
-import           Language.Fixpoint.Types.Errors           (exit, die)
-import           Language.Fixpoint.Types.PrettyPrint      (showpp)
 import           Control.DeepSeq
 
 ---------------------------------------------------------------------------
@@ -188,16 +187,17 @@ solveNative' !cfg !fi0 = do
   -- writeLoud $ "fq file after validate: \n" ++ render (toFixpoint cfg si1)
   -- rnf si1 `seq` donePhase Loud "Validated Constraints"
   when (elimStats cfg) $ printElimStats (deps si1)
-  let si2  = {-# SCC "renameAll" #-} renameAll $!! si1
+  let si2  = {-# SCC "wfcUniqify" #-} wfcUniqify $!! si1
+  let si3  = {-# SCC "renameAll" #-} renameAll $!! si2
   -- writeLoud $ "fq file after uniqify: \n" ++ render (toFixpoint cfg si2)
   -- rnf si2 `seq` donePhase Loud "Uniqify"
-  (s0, si3) <- {-# SCC "elim" #-} elim cfg $!! si2
-  Result stat soln <- {-# SCC "Sol.solve" #-} Sol.solve cfg s0 $!! si3
+  (s0, si4) <- {-# SCC "elim" #-} elim cfg $!! si3
+  res <- {-# SCC "Sol.solve" #-} Sol.solve cfg s0 $!! si4
   -- rnf soln `seq` donePhase Loud "Solve2"
-  let stat' = sid <$> stat
-  writeLoud $ "\nSolution:\n"  ++ showpp soln
-  -- colorStrLn (colorResult stat') (show stat')
-  return    $ Result (WrapC . mlookup (cm fi0) . mfromJust "WAT" <$> stat') soln
+  --let stat = resStatus res
+  writeLoud $ "\nSolution:\n"  ++ showpp (resSolution res)
+  -- colorStrLn (colorResult stat) (show stat)
+  return res
 
 printElimStats :: Deps -> IO ()
 printElimStats d = putStrLn $ printf "KVars (Total/Post-Elim) = (%d, %d) \n" total postElims
@@ -261,7 +261,7 @@ exitFq fn z _
   = do str <- {-# SCC "readOut" #-} readFile (extFileName Out fn)
        let (x, y) = parseFixpointOutput str
        let x'     = fmap (mlookup z) x
-       return     $ Result (WrapC <$> x') y
+       return     $ Result (sinfo <$> x') y
 
 parseFixpointOutput :: String -> (FixResult Integer, FixSolution)
 parseFixpointOutput str = {-# SCC "parseFixOut" #-} rr ({-# SCC "sanitizeFixpointOutput" #-} sanitizeFixpointOutput str)
