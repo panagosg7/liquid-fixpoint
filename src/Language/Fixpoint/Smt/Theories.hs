@@ -101,8 +101,8 @@ z3Preamble u
     , uifDef u (symbolText divFuncName) ("/"::T.Text)
     ]
 
-uifDef u f op | u         = format "(declare-fun {} (Real Real) Real)" (Only f)
-              | otherwise = format "(define-fun {} ((x Real) (y Real)) Real ({} x y))" (f, op)
+uifDef u f op | u         = format "(declare-fun {} (Int Int) Int)" (Only f)
+              | otherwise = format "(define-fun {} ((x Int) (y Int)) Int({} x y))" (f, op)
 
 smtlibPreamble :: Bool -> [T.Text]
 smtlibPreamble _ --TODO use uif flag u (see z3Preamble)
