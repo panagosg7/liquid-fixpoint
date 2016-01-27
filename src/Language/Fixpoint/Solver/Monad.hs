@@ -21,6 +21,9 @@ module Language.Fixpoint.Solver.Monad
        , tickIter
        , stats
        , numIter
+
+         -- * Debug
+       , declareInitEnv
        )
        where
 
@@ -80,12 +83,11 @@ instance PTable Stats where
 ---------------------------------------------------------------------------
 runSolverM :: Config -> F.GInfo c b -> Int -> SolveM a -> IO a
 ---------------------------------------------------------------------------
-runSolverM cfg fi _ act = do
+runSolverM cfg fi _ act =
   bracket acquire release $ \ctx -> do
-    res <- runStateT (declareInitEnv >> declare fi >> act) (SS ctx be $ stats0 fi)
+    res <- runStateT ({- declareInitEnv >> -} declare fi >> act) (SS ctx be $ stats0 fi)
     smtWrite ctx "(exit)"
     return $ fst res
-      
   where
     acquire = makeContextWithSEnv (not $ real cfg) (solver cfg) file (F.lits fi)
     release = cleanupContext
@@ -152,8 +154,8 @@ filterValid_ p qs me = catMaybes <$> do
 declare :: F.GInfo c a -> SolveM ()
 ---------------------------------------------------------------------------
 declareInitEnv :: SolveM ()
-declareInitEnv = withContext $ \me -> do 
-                   forM_ (F.toListSEnv initSMTEnv) $ uncurry $ smtDecl me 
+declareInitEnv = withContext $ \me -> do
+                   forM_ (F.toListSEnv initSMTEnv) $ uncurry $ smtDecl me
 
 declare fi  = withContext $ \me -> do
   xts      <- either E.die return $ declSymbols fi

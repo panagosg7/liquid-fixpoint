@@ -232,7 +232,6 @@ splitEApp ex = traceShow ("SPLITEAPP: e = " ++ show ex) $  go [] ex
     go acc (EApp f e) = go (e : acc) f
     go acc e          = (e, acc)
 
-
 newtype Reft = Reft (Symbol, Expr)
                deriving (Eq, Data, Typeable, Generic)
 
