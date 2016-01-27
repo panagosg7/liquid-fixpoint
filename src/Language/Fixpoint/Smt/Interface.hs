@@ -229,8 +229,8 @@ makeContext u s f
     where
        smtFile = extFileName Smt2 f
 
-makeContextWithSEnv :: Bool -> SMTSolver -> FilePath  -> SMTEnv -> IO Context 
-makeContextWithSEnv u s f env 
+makeContextWithSEnv :: Bool -> SMTSolver -> FilePath  -> SMTEnv -> IO Context
+makeContextWithSEnv u s f env
   = (\cxt -> cxt {smtenv = env}) <$> makeContext u s f
 
 makeContextNoLog :: Bool -> SMTSolver -> IO Context
