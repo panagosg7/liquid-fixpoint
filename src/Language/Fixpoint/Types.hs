@@ -4,7 +4,6 @@
 --   constraints.
 
 module Language.Fixpoint.Types (
-
     module Language.Fixpoint.Types.PrettyPrint
   , module Language.Fixpoint.Types.Spans
   , module Language.Fixpoint.Types.Errors

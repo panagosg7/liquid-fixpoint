@@ -67,7 +67,7 @@ module Language.Fixpoint.Types.Refinements (
   , reftConjuncts
   , intKvar
   , vv_
-  , mkEApp, eApps, splitEApp 
+  , mkEApp, eApps, splitEApp
   ) where
 
 import qualified Data.Binary as B
@@ -200,7 +200,7 @@ data Expr = ESym !SymConst
           | EBin !Bop !Expr !Expr
           | EIte !Expr !Expr !Expr
           | ECst !Expr !Sort
-          | ETApp !Expr !Sort 
+          | ETApp !Expr !Sort
           | ETAbs !Expr !Symbol
 
 --- Used to be predicates
@@ -220,16 +220,16 @@ pattern PTop   = PAnd []
 pattern PFalse = POr []
 pattern EBot   = POr []
 
-mkEApp :: LocSymbol -> [Expr] -> Expr 
+mkEApp :: LocSymbol -> [Expr] -> Expr
 mkEApp f = eApps (EVar $ val f)
 
-eApps :: Expr -> [Expr] -> Expr 
-eApps f es  = foldl EApp f es 
+eApps :: Expr -> [Expr] -> Expr
+eApps f es  = foldl EApp f es
 
 splitEApp :: Expr -> (Expr, [Expr])
-splitEApp = go [] 
+splitEApp = traceShow ("SPLITEAPP: e = " ++ show e) $  go []
   where
-    go acc (EApp f e) = go (e:acc) f 
+    go acc (EApp f e) = go (e : acc) f
     go acc e          = (e, acc)
 
 
@@ -555,7 +555,7 @@ pAnd, pOr     :: ListNE Expr -> Expr
 pAnd          = simplify . PAnd
 pOr           = simplify . POr
 pIte p1 p2 p3 = pAnd [p1 `PImp` p2, (PNot p1) `PImp` p3]
-mkProp        = EApp (EVar propConName) 
+mkProp        = EApp (EVar propConName)
 
 
 --------------------------------------------------------------------------------
