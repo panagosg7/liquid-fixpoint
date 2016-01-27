@@ -227,7 +227,7 @@ eApps :: Expr -> [Expr] -> Expr
 eApps f es  = foldl EApp f es
 
 splitEApp :: Expr -> (Expr, [Expr])
-splitEApp = traceShow ("SPLITEAPP: e = " ++ show e) $  go []
+splitEApp ex = traceShow ("SPLITEAPP: e = " ++ show ex) $  go [] ex
   where
     go acc (EApp f e) = go (e : acc) f
     go acc e          = (e, acc)
