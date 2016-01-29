@@ -63,13 +63,14 @@ import           Language.Fixpoint.Smt.Theories  (preamble)
 import           Language.Fixpoint.Smt.Serialize (initSMTEnv)
 
 
+import System.Timeout
 
-import           Control.Applicative      ((<|>))
+-- import           Control.Applicative      ((<|>))
 import           Control.Monad
-import           Data.Char
-import           Data.Monoid
+-- import           Data.Char
+-- import           Data.Monoid
 import qualified Data.Text                as T
-import           Data.Text.Format         hiding (format)
+-- import           Data.Text.Format         hiding (format)
 import qualified Data.Text.IO             as TIO
 -- import qualified Data.Text.Lazy           as LT
 -- import qualified Data.Text.Lazy.IO        as LTIO
@@ -77,9 +78,9 @@ import           System.Directory
 import           System.Console.CmdArgs.Verbosity
 import           System.Exit              hiding (die)
 import           System.FilePath
-import           System.IO                (IOMode (..), hClose, hFlush, openFile)
+import           System.IO                (IOMode (..), hClose, hFlush, openFile) -- , hIsEOF)
 import           System.Process
-import qualified Data.Attoparsec.Text     as A
+-- import qualified Data.Attoparsec.Text     as A
 
 {-
 runFile f
@@ -142,12 +143,13 @@ checkValids u f xts ps
 --------------------------------------------------------------------------
 command              :: Context -> Command -> IO Response
 --------------------------------------------------------------------------
-command me !cmd      = {-# SCC "command" #-} putStrLn "to say" >> say cmd >> putStrLn "to hear" >> hear cmd
+command me !cmd      = {-# SCC "command" #-} putStrLn ("to say") >> say cmd >> putStrLn "to hear" >> hear cmd
   where
-    say !p              = smtWrite me $ traceShow ("\n\ntoWrite for " ++ show p) $  smt2 (smtenv me) p 
-    hear CheckSat     = smtRead me
-    hear (GetValue _) = smtRead me
-    hear _            = return Ok
+    say !p             = smtWrite me $ traceShow ("\n\ntoWrite for " ++ show p) $  smt2 (smtenv me) p 
+    hear !CheckSat     = smtRead me 
+    hear !(GetValue _) = smtRead me 
+    hear !(Assert _ _) = smtRead me -- >>= (\r -> putStrLn ("READ " ++ show r) >> return Ok)
+    hear !_            = return Ok
 
 
 smtWrite :: Context -> T.Text -> IO ()
@@ -155,15 +157,26 @@ smtWrite me !s = smtWriteRaw me s
 
 smtRead :: Context -> IO Response
 smtRead me = {-# SCC "smtRead" #-}
-    do ln  <- smtReadRaw me
+    do putStrLn $ (" ENTERED READING ")
+       ln  <- smtReadRaw me
+       putStrLn $ ("READING " ++ show (T.unpack ln))
+       return $ stringToRes $ T.unpack ln 
+
+stringToRes "sat"     = Sat 
+stringToRes "unsat"   = Unsat
+stringToRes "unknown" = Unknown
+stringToRes "ok"      = Ok 
+stringToRes srt       = errorstar srt
+
+
+{-       
        res <- A.parseWith (smtReadRaw me) responseP ln
        case A.eitherResult res of
-         Left e  -> errorstar $ "SMTREAD:" ++ e
-         Right r -> do
+         Left !e  -> errorstar $ "SMTREAD:" ++ e
+         Right !r -> do
            maybe (return ()) (\h -> hPutStrLnNow h $ format "; SMT Says: {}" (Only $ show r)) (cLog me)
            -- when (verbose me) $ TIO.putStrLn $ format "SMT Says: {}" (Only $ show r)
            return r
-
 responseP = {-# SCC "responseP" #-} A.char '(' *> sexpP
          <|> A.string "sat"     *> return Sat
          <|> A.string "unsat"   *> return Unsat
@@ -172,7 +185,7 @@ responseP = {-# SCC "responseP" #-} A.char '(' *> sexpP
 sexpP = {-# SCC "sexpP" #-} A.string "error" *> (Error <$> errorP)
      <|> Values <$> valuesP
 
-errorP = A.skipSpace *> A.char '"' *> A.takeWhile1 (/='"') <* A.string "\")"
+errorP = A.char '"' *> A.takeWhile1 (/='"') <* A.string "\")"
 
 valuesP = A.many1' pairP <* A.char ')'
 
@@ -194,6 +207,8 @@ negativeP
   = do v <- A.char '(' *> A.takeWhile1 (/=')') <* A.char ')'
        return $ "(" <> v <> ")"
 
+-}
+
 -- {- pairs :: {v:[a] | (len v) mod 2 = 0} -> [(a,a)] -}
 -- pairs :: [a] -> [(a,a)]
 -- pairs !xs = case L.splitAt 2 xs of
@@ -206,8 +221,20 @@ smtWriteRaw me !s = {-# SCC "smtWriteRaw" #-} do
   -- whenLoud $ TIO.appendFile debugFile (s <> "\n")
   maybe (return ()) (`hPutStrLnNow` s) (cLog me)
 
-smtReadRaw       :: Context -> IO Raw
-smtReadRaw me    = {-# SCC "smtReadRaw" #-} TIO.hGetLine (cIn me)
+smtReadRaw me =
+  do res <- timeout 20000 (smtReadRaw' me)
+     case res of 
+       Nothing -> return "ok"
+       Just r  -> return r 
+
+
+
+smtReadRaw'       :: Context -> IO Raw
+smtReadRaw' me = TIO.hGetLine (cIn me)
+
+
+
+-- smtReadRaw' me    = {-# SCC "smtReadRaw" #-} hFlush (cOut me) >> TIO.hGetLine (cIn me)
 
 hPutStrLnNow h !s   = TIO.hPutStrLn h s >> hFlush h
 

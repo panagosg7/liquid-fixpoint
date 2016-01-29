@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE PatternGuards        #-}
+{-# LANGUAGE BangPatterns      #-}
 
 -- | This module contains the code for serializing Haskell values
 --   into SMTLIB2 format, that is, the instances for the @SMTLIB2@
@@ -97,7 +98,7 @@ instance SMTLIB2 Expr where
   smt2 env (EVar x)         = smt2 env x
   smt2 env e@(EApp _ _)     = smt2App env e
   smt2 env (ENeg e)         = format "(- {})"         (Only $ smt2 env e)
-  smt2 env (EBin o e1 e2)   = smt2Bop env o e1 e2
+  smt2 env (EBin o e1 e2)   = traceShow "Serialize EBin" $ smt2Bop env o e1 e2
   smt2 env (EIte e1 e2 e3)  = format "(ite {} {} {})" (smt2 env e1, smt2 env e2, smt2 env e3)
   smt2 env (ECst e _)       = smt2 env e
   smt2 _   (PTrue)          = "true"
@@ -107,14 +108,19 @@ instance SMTLIB2 Expr where
   smt2 _   (POr [])         = "false"
   smt2 env (POr ps)         = format "(or  {})"    (Only $ smt2s env ps)
   smt2 env (PNot p)         = format "(not {})"    (Only $ smt2  env p)
-  smt2 env (PImp p q)       = format "(=> {} {})"  (smt2 env p, smt2 env q)
+  smt2 env (PImp p q)       = traceShow "Serialize PImp" $ 
+                              format "(=> {} {})"  ( traceShow ("Serialize PImp1 for " ++ show p) $ smt2 env p
+                                                   , traceShow ("Serialize PImp2 for " ++ show q) $  smt2 env q)
   smt2 env (PIff p q)       = format "(=  {} {})"  (smt2 env p, smt2 env q)
   smt2 env (PExist bs p)    = format "(exists ({}) {})"  (smt2s env bs, smt2 env p)
-  smt2 env (PAtom r e1 e2)  = mkRel env r e1 e2
+  smt2 env (PAtom r e1 e2)  = traceShow "Serialize PAtom" $ 
+                                  mkRel env r e1 e2
   smt2 _   _                = errorstar "smtlib2 Pred"
 
 smt2Bop env o e1 e2
-  | o == Times || o == Div = smt2App env (mkEApp (uOp o) [e1, e2])
+-- THIS fixes things
+--   | o == Times || o == Div = format "({} {} {})" (symbolSafeText $ uOp o, smt2 env e1, smt2 env e2) 
+  | o == Times || o == Div = smt2App env (traceShow "\nBUGGY DIV\n" (mkEApp (uOp o) [e1, e2]))
   | otherwise  = format "({} {} {})" (smt2 env o, smt2 env e1, smt2 env e2)
 
 uOp o | o == Times = dummyLoc mulFuncName
@@ -122,7 +128,7 @@ uOp o | o == Times = dummyLoc mulFuncName
       | otherwise  = errorstar "Serialize.uOp called with bad arguments"
 
 smt2App :: SMTEnv -> Expr  -> T.Text
-smt2App env e = fromMaybe (smt2App' env f es) (Thy.smt2App f ds)
+smt2App env !e = fromMaybe (smt2App' env f es) (Thy.smt2App f ds)
   where
     (f, es) = splitEApp e 
     ds      = smt2 env <$> es
@@ -136,8 +142,10 @@ smt2App' env f es = makeApplication env f es
 
 mkRel env Ne  e1 e2         = mkNe env e1 e2
 mkRel env Une e1 e2         = mkNe env e1 e2
-mkRel env r   e1 e2         = format "({} {} {})"      (smt2 env r , smt2 env e1, smt2 env e2)
-mkNe  env e1 e2             = format "(not (= {} {}))" (smt2 env e1, smt2 env e2)
+mkRel env r   e1 e2         = format "({} {} {})"      $ traceShow ("\nmkRel for " ++ show (r, e1, e2)) 
+                                 (traceShow ("R = " ++ show r) $ smt2 env r , traceShow ("LHS" ++ show e1) $ smt2 env e1, traceShow ("RHS" ++ show e1) $ smt2 env e2)
+mkNe  env e1 e2             = traceShow "Serialize NE" $ format "(not (= {} {}))" 
+                                   (traceShow ("LHS" ++ show e1) $ smt2 env e1, traceShow ("RHS " ++ show e2) $ smt2 env e2)
 
 instance SMTLIB2 Command where
   -- NIKI TODO: formalize this transformation
@@ -212,7 +220,7 @@ makeApplication env e es
   = format "({} {})" (smt2 env f, smt2many ds) 
   where 
     f  = makeFunSymbol env e $ length es
-    ds = smt2 env e:(toInt env <$> es)
+    ds = (traceShow "FUNCTION" $ smt2 env e):(traceShow "ARGS = " (toInt env <$> es))
 
 
 makeFunSymbol :: SMTEnv -> Expr -> Int -> Symbol 
@@ -230,12 +238,12 @@ makeFunSymbol env e i
   | otherwise
   = intApplyName i 
   where
-    s = dropArgs i $ sortExpr dummySpan env e
+    s = dropArgs i $ (traceShow ("sortExpr for " ++ show e) $ sortExpr dummySpan env e)
 
-    dropArgs 0 t           = t 
-    dropArgs i (FAbs _ t)  = dropArgs i t 
-    dropArgs i (FFunc _ t) = dropArgs (i-1) t 
-    dropArgs _ _           = die $ err dummySpan "dropArgs: the impossible happened"
+    dropArgs 0 !t           = t 
+    dropArgs i !(FAbs _ t)  = dropArgs i t 
+    dropArgs i !(FFunc _ t) = dropArgs (i-1) t 
+    dropArgs _ !_           = die $ err dummySpan "dropArgs: the impossible happened"
 
 toInt ::  SMTEnv -> Expr -> T.Text 
 toInt env e

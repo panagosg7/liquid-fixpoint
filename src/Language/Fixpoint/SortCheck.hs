@@ -2,6 +2,8 @@
 {-# LANGUAGE TypeSynonymInstances  #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE BangPatterns          #-}
+{-# LANGUAGE PatternGuards         #-}
 
 -- | This module has the functions that perform sort-checking, and related
 -- operations on Fixpoint expressions and predicates.
@@ -50,7 +52,7 @@ import           Language.Fixpoint.Types.Visitor (foldSort)
 import           Text.PrettyPrint.HughesPJ
 import           Text.Printf
 
--- import Debug.Trace
+import Debug.Trace (trace)
 
 -------------------------------------------------------------------------
 -- | Predicates on Sorts ------------------------------------------------
@@ -86,12 +88,23 @@ isMono             = null . foldSort fv []
 -------------------------------------------------------------------------
 
 sortExpr :: SrcSpan -> SEnv Sort -> Expr -> Sort 
-sortExpr l γ e
+sortExpr _l γ e
   = case runCM0 $ checkExpr f e of 
-      Left msg -> die $ err l ("sortExpr failed for " ++ showFix e ++ "\n with error\n" ++ msg)
+      Left msg -> errorstar ("sortExpr failed for " ++ showFix e ++ "\n with error\n" ++ msg)
+--       Left msg -> die $ err l ("sortExpr failed for " ++ showFix e ++ "\n with error\n" ++ msg)
       Right s  -> s 
   where
-    f = (`lookupSEnvWithDistance` γ)
+    f x = case lookupSEnv (traceShow ("\nLooking up\n" ++ 
+                  show (case lookupSEnv x γ of {Nothing -> dienow ; Just z -> z}))  x) γ of
+-- When diverging for tests/pos/SimplerNotation.hs the below dwbugs to nothing, but above does not die!
+--                   show (lookupSEnv x γ))  x) γ of
+            Just z  -> Found z
+            Nothing -> errorstar ("Not found" ++ show x)
+
+dienow = f undefined 
+  where 
+      f :: Int -> a 
+      f !x = error (show x)
 
 -------------------------------------------------------------------------
 -- | Checking Refinements -----------------------------------------------
@@ -219,7 +232,9 @@ checkExpr _ (ESym _)       = return strSort
 checkExpr _ (ECon (I _))   = return FInt
 checkExpr _ (ECon (R _))   = return FReal
 checkExpr _ (ECon (L _ s)) = return s
-checkExpr f (EVar x)       = checkSym f x
+checkExpr f (EVar x)       | Found s <- f x = return s 
+checkExpr _ (EVar x)       =  errorstar ("Unbound " ++ show x )
+-- checkExpr f (EVar x)       = traceShow ("CHECKED " ++ show x ) <$> checkSym f (traceShow "TO CHECK " x)
 checkExpr f (ENeg e)       = checkNeg f e
 checkExpr f (EBin o e1 e2) = checkOp f e1 o e2
 checkExpr f (EIte p e1 e2) = checkIte f p e1 e2
@@ -241,10 +256,11 @@ checkExpr _ (ETAbs _ _)    = error "SortCheck.checkExpr: TODO: implement ETAbs"
 
 -- | Helper for checking symbol occurrences
 
-checkSym f x
+checkSym f !x
   = case f x of
      Found s -> return s
-     Alts xs -> throwError $ errUnboundAlts x xs
+     _       -> trace ("\nDie die die\n") $ errorstar ("Not found " ++ show x)
+--      Alts xs -> throwError $ errUnboundAlts x xs
 
 -- | Helper for checking if-then-else expressions
 
@@ -515,9 +531,9 @@ errIte e1 e2 t1 t2   = printf "Mismatched branches in Ite: then %s : %s, else %s
                          (showpp e1) (showpp t1) (showpp e2) (showpp t2)
 errCast e t' t       = printf "Cannot cast %s of sort %s to incompatible sort %s"
                          (showpp e) (showpp t') (showpp t)
-errUnboundAlts x xs  = printf "Unbound Symbol %s\n Perhaps you meant: %s"
-                        (showpp x)
-                        (foldr1 (\w s -> w ++ ", " ++ s) (showpp <$> xs))
+-- errUnboundAlts x xs  = printf "Unbound Symbol %s\n Perhaps you meant: %s"
+--                         (showpp x)
+--                         (foldr1 (\w s -> w ++ ", " ++ s) (showpp <$> xs))
 errNonFunction t     = printf "Sort %s is not a function" (showpp t)
 errNonNumeric  l     = printf "FObj sort %s is not numeric" (showpp l)
 errNonNumerics l l'  = printf "FObj sort %s and %s are different and not numeric" (showpp l) (showpp l')
