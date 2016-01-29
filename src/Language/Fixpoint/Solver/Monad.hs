@@ -81,7 +81,7 @@ instance PTable Stats where
 ---------------------------------------------------------------------------
 runSolverM :: Config -> F.GInfo c b -> Int -> SolveM a -> IO a
 ---------------------------------------------------------------------------
-runSolverM cfg fi _ act = do
+runSolverM !cfg !fi _ !act = do
   bracket acquire release $ \ctx -> do
     res <- runStateT (declareInitEnv >> declare fi >> act) (SS ctx be $ stats0 fi)
     smtWrite ctx "(exit)"
@@ -129,9 +129,9 @@ modifyStats f = modify $ \s -> s { ssStats = f (ssStats s) }
 ---------------------------------------------------------------------------
 -- | SMT Interface --------------------------------------------------------
 ---------------------------------------------------------------------------
-filterValid :: F.Expr -> Cand a -> SolveM [a]
+filterValid :: Show a => F.Expr -> Cand a -> SolveM [a]
 ---------------------------------------------------------------------------
-filterValid p qs = do
+filterValid !p !qs = do
   qs' <- withContext $ \me ->
            smtBracket me $
              filterValid_ p qs me
@@ -143,11 +143,15 @@ filterValid p qs = do
 
 
 
-filterValid_ :: F.Expr -> Cand a -> Context -> IO [a]
-filterValid_ p qs me = catMaybes <$> do
+filterValid_ :: Show a => F.Expr -> Cand a -> Context -> IO [a]
+filterValid_ !p !qs me = catMaybes <$> do
+  putStrLn ("\n\nEnter filterValid_ for" ++ show p)
+  putStrLn ("\n\nEnter filterValid_ for")
   smtAssert me p
+  putStrLn "\n\nDone Assert"
   forM qs $ \(q, x) ->
     smtBracket me $ do
+      putStrLn "BEGIN ASSERT 2"
       smtAssert me (F.PNot q)
       valid <- smtCheckUnsat me
       return $ if valid then Just x else Nothing

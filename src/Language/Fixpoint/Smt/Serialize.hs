@@ -10,6 +10,7 @@
 
 module Language.Fixpoint.Smt.Serialize where
 
+import           Language.Fixpoint.Misc (traceShow)
 import           Language.Fixpoint.Types
 --import           Language.Fixpoint.Types.Names (mulFuncName, divFuncName)
 import           Language.Fixpoint.Smt.Types
@@ -149,16 +150,21 @@ instance SMTLIB2 Command where
      = format "(declare-fun {} () {})"    (smt2 env x, smt2 env intSort)    
 
   smt2 env (Define t)          = format "(declare-sort {})"         (Only $ smt2 env t)
-  smt2 env (Assert Nothing p)  = format "(assert {})"               (Only $ smt2 env p)
-  smt2 env (Assert (Just i) p) = format "(assert (! {} :named p-{}))"  (smt2 env p, i)
+  smt2 env (Assert Nothing p)  = format "(assert {})"               (Only $ traceShow "\nTo assert1 \n" $ smt2 env p)
+  smt2 env (Assert (Just i) p) = format "(assert (! {} :named p-{}))"  (traceShow "\nTo assert2 \n" $ smt2 env p, i)
   smt2 env (Distinct az)       = format "(assert (distinct {}))"    (Only $ smt2s env az)
   smt2 _   (Push)              = "(push 1)"
   smt2 _   (Pop)               = "(pop 1)"
   smt2 _   (CheckSat)          = "(check-sat)"
   smt2 env (GetValue xs)       = T.unwords $ ["(get-value ("] ++ fmap (smt2 env) xs ++ ["))"]
 
-smt2s     :: SMTLIB2 a => SMTEnv -> [a] -> T.Text
-smt2s env = smt2many . fmap (smt2 env)
+smt2s     :: Show a => SMTLIB2 a => SMTEnv -> [a] -> T.Text
+smt2s env ws = smt2many $ go (length ws) (take 40 ws) -- map (traceShow ("smts " ++  ) . smt2 env) es 
+  where
+    go _ [] = []
+    go i (e1:e2:es) = traceShow ("\nsmt\n" ++ show (i, length ws) ++ "\nNExt = \n" ++ show (e2, smt2 env e2)) 
+                        (smt2 env e1) : go (i-1) (e2:es) 
+    go i (e:es) = traceShow ("\nsmt\n" ++ show (i, length ws)) (smt2 env e) : go (i-1) es 
 
 smt2many :: [T.Text] -> T.Text
 smt2many = T.intercalate " "

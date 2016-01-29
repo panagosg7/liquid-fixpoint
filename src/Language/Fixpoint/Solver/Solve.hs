@@ -1,5 +1,6 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE BangPatterns  #-}
 
 --------------------------------------------------------------------------------
 -- | Solve a system of horn-clause constraints ---------------------------------
@@ -25,7 +26,7 @@ import           System.Console.CmdArgs.Verbosity (whenLoud)
 import           Control.DeepSeq
 
 --------------------------------------------------------------------------------
-solve :: (NFData a, F.Fixpoint a) => Config -> S.Solution -> F.SInfo a -> IO (F.Result a)
+solve :: (NFData a, F.Fixpoint a, Show a) => Config -> S.Solution -> F.SInfo a -> IO (F.Result a)
 --------------------------------------------------------------------------------
 solve cfg s0 fi = do
     -- donePhase Loud "Worklist Initialize"
@@ -45,24 +46,24 @@ printStats fi w s = putStrLn "\n" >> ppTs [ ptable fi, ptable s, ptable w ]
 
 
 --------------------------------------------------------------------------------
-solve_ :: (NFData a, F.Fixpoint a)
+solve_ :: (NFData a, F.Fixpoint a, Show a)
        => F.SInfo a -> S.Solution -> W.Worklist a
        -> SolveM (F.Result a, Stats)
 --------------------------------------------------------------------------------
 solve_ fi s0 wkl = do
   let s0'  = mappend s0 $ {-# SCC "sol-init" #-} S.init fi
-  s       <- {-# SCC "sol-refine" #-} refine s0' wkl
+  s       <- {-# SCC "sol-refine" #-} refine (traceShow "\nEntering refine loop\n" s0') wkl
   st      <- stats
   res     <- {-# SCC "sol-result" #-} result wkl s
   let res' = {-# SCC "sol-tidy"   #-} tidyResult res
-  return $!! (res', st)
+  return $!! (traceShow "RESULT = " res', st)
 
 -- | tidyResult ensures we replace the temporary kVarArg names
 --   introduced to ensure uniqueness with the original names
 --   appearing in the supplied WF constraints.
 
 tidyResult :: F.Result a -> F.Result a
-tidyResult r = r { F.resSolution = tidySolution (F.resSolution r) }
+tidyResult !r = r { F.resSolution = tidySolution (F.resSolution r) }
 
 tidySolution :: F.FixSolution -> F.FixSolution
 tidySolution = fmap tidyPred
@@ -73,14 +74,16 @@ tidyPred = F.substf (F.eVar . F.tidySymbol)
 --------------------------------------------------------------------------------
 refine :: S.Solution -> W.Worklist a -> SolveM S.Solution
 --------------------------------------------------------------------------------
-refine s w
+refine !s w
   | Just (c, w', newScc) <- W.pop w = do
      i       <- tickIter newScc
+     lift $ putStrLn "To enter refineC"
      (b, s') <- refineC i s c
-     lift $ writeLoud $ refineMsg i c b
+     lift $ putStrLn "Exit refineC"
+     lift $ writeLoud $ refineMsg (traceShow "\nITer\n" i) c b
      let w'' = if b then W.push c w' else w'
      refine s' w''
-  | otherwise = return s
+  | otherwise = return $ traceShow "\nreturn refine\n" s
 
 -- DEBUG
 refineMsg i c b = printf "\niter=%d id=%d change=%s\n"
@@ -91,15 +94,17 @@ refineMsg i c b = printf "\niter=%d id=%d change=%s\n"
 ---------------------------------------------------------------------------
 refineC :: Int -> S.Solution -> F.SimpC a -> SolveM (Bool, S.Solution)
 ---------------------------------------------------------------------------
-refineC _i s c
+refineC !_i !s !c
   | null rhs  = return (False, s)
   | otherwise = do lhs   <- lhsPred  s c <$> getBinds
-                   kqs   <- filterValid lhs rhs
+                   kqs   <- filterValid (traceShow ("\n filter Valid for \n" ++ show (rhs, lhs)) lhs) rhs
                    return $ S.update s ks {- tracepp (msg ks rhs kqs) -} kqs
   where
-    (ks, rhs) = rhsCands s c
+    (ks, rhs) = evalshow $ rhsCands s c
     -- msg ks xs ys = printf "refineC: iter = %d, ks = %s, rhs = %d, rhs' = %d \n" _i (showpp ks) (length xs) (length ys)
 
+evalshow :: (Show a) => a -> a
+evalshow !x = traceShow "evalShow" x 
 lhsPred :: S.Solution -> F.SimpC a -> F.BindEnv -> F.Expr
 lhsPred s c be = F.pAnd pBinds
   where
@@ -123,29 +128,31 @@ predKs _              = []
 ---------------------------------------------------------------------------
 result :: (F.Fixpoint a) => W.Worklist a -> S.Solution -> SolveM (F.Result a)
 ---------------------------------------------------------------------------
-result wkl s = do
+result !wkl !s = do
+  lift $ putStrLn "\nEntering result\n"
   let sol  = M.map (F.pAnd . fmap S.eqPred) s
-  stat    <- result_ wkl s
-  return   $ F.Result (F.sinfo <$> stat) sol
+  stat    <- result_ wkl (traceShow ("\nHERE WITH SOL = \n" ++ show sol) s)
+  lift $ putStrLn "\n Exiting result\n"
+  return   $ F.Result (F.sinfo <$> stat) $ evalshow sol
 
-result_ :: W.Worklist a -> S.Solution -> SolveM (F.FixResult (F.SimpC a))
-result_  w s   = res <$> filterM isUnsat' cs
+result_ :: (Fixpoint a) => W.Worklist a -> S.Solution -> SolveM (F.FixResult (F.SimpC a))
+result_  !w !s   = res <$> filterM isUnsat' (traceShow ("checkgin unsat Constraints " ++ show (length cs)) $ cs)
   where
     cs         = W.unsatCandidates w
-    res []     = F.Safe
-    res cs'    = F.Unsafe cs'
-    isUnsat' c = lift progressTick >> isUnsat s c
+    res ![]     = F.Safe
+    res !cs'    = F.Unsafe cs'
+    isUnsat' !c = traceShow "\nRES = \n" <$> (lift progressTick >> isUnsat s c)
 
 ---------------------------------------------------------------------------
 isUnsat :: S.Solution -> F.SimpC a -> SolveM Bool
 ---------------------------------------------------------------------------
-isUnsat s c = do
+isUnsat !s !c = do
   lp    <- lhsPred s c <$> getBinds
   let rp = rhsPred s c
-  not   <$> isValid lp rp
+  not   <$> isValid (traceShow ("\ncheck Valid\n" ++ show rp) lp) rp
 
 isValid :: F.Expr -> F.Expr -> SolveM Bool
-isValid p q = (not . null) <$> filterValid p [(q, ())]
+isValid !p !q = (evalshow . not . null) <$> filterValid p [(q, ())]
 
 rhsPred :: S.Solution -> F.SimpC a -> F.Expr
 rhsPred s c = S.apply s $ F.crhs c

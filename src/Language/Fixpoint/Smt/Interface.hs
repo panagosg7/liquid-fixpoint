@@ -54,7 +54,7 @@ module Language.Fixpoint.Smt.Interface (
     ) where
 
 import           Language.Fixpoint.Types.Config (SMTSolver (..))
-import           Language.Fixpoint.Misc   (errorstar)
+import           Language.Fixpoint.Misc   (errorstar, traceShow)
 import           Language.Fixpoint.Types.Errors
 import           Language.Fixpoint.Utils.Files
 import           Language.Fixpoint.Types
@@ -142,9 +142,9 @@ checkValids u f xts ps
 --------------------------------------------------------------------------
 command              :: Context -> Command -> IO Response
 --------------------------------------------------------------------------
-command me !cmd      = {-# SCC "command" #-} say cmd >> hear cmd
+command me !cmd      = {-# SCC "command" #-} putStrLn "to say" >> say cmd >> putStrLn "to hear" >> hear cmd
   where
-    say               = smtWrite me . smt2 (smtenv me)
+    say !p              = smtWrite me $ traceShow ("\n\ntoWrite for " ++ show p) $  smt2 (smtenv me) p 
     hear CheckSat     = smtRead me
     hear (GetValue _) = smtRead me
     hear _            = return Ok
@@ -324,12 +324,14 @@ smtBracket me a   = do smtPush me
                        smtPop me
                        return r
 
-respSat Unsat   = True
-respSat Sat     = False
-respSat Unknown = False
-respSat r       = die $ err dummySpan $ "crash: SMTLIB2 respSat = " ++ show r
+respSat !Unsat   = True
+respSat !Sat     = False
+respSat !Unknown = False
+respSat !r       = die $ err dummySpan $ "crash: SMTLIB2 respSat = " ++ show r
 
-interact' me cmd  = void $ command me cmd
+interact' me cmd  = void (evall . respSat <$> command me cmd)
+
+evall !x = x 
 
 -- DON'T REMOVE THIS! z3 changed the names of options between 4.3.1 and 4.3.2...
 z3_432_options

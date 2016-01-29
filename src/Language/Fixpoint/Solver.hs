@@ -79,7 +79,7 @@ solveFQ cfg = do
 ---------------------------------------------------------------------------
 -- | Solve FInfo system of horn-clause constraints ------------------------
 ---------------------------------------------------------------------------
-solve :: (NFData a, Fixpoint a) => Solver a
+solve :: (NFData a, Fixpoint a, Show a) => Solver a
 ---------------------------------------------------------------------------
 solve cfg fi
   | parts cfg = partition  cfg               $!! fi
@@ -94,7 +94,7 @@ solve cfg fi
 -- saveBin :: (NFData a, Fixpoint a) => Config -> FInfo a -> IO ()
 -- saveBin cfg fi = when (binary cfg) $ saveQuery cfg fi
 
-configSW :: (NFData a, Fixpoint a) => Config -> Solver a -> Solver a
+configSW :: (NFData a, Fixpoint a, Show a) => Config -> Solver a -> Solver a
 configSW cfg
   | multicore cfg = solveParWith
   | otherwise     = solveSeqWith
@@ -160,7 +160,7 @@ inParallelUsing f xs = do
 ---------------------------------------------------------------------------
 -- | Native Haskell Solver ------------------------------------------------
 ---------------------------------------------------------------------------
-solveNative, solveNative' :: (NFData a, Fixpoint a) => Solver a
+solveNative, solveNative' :: (NFData a, Fixpoint a, Show a) => Solver a
 ---------------------------------------------------------------------------
 solveNative !cfg !fi0 = (solveNative' cfg fi0) `catch` (return . result)
 
@@ -326,7 +326,7 @@ deltaDebug testSet cfg finfo set r = do
               d2 <- deltaDebug testSet cfg finfo s2 (s1 ++ r)
               return (d1 ++ d2)
 
-testConstraints :: (NFData a, Fixpoint a) => Config -> FInfo a -> ConsList a -> IO Bool
+testConstraints :: (NFData a, Fixpoint a, Show a) => Config -> FInfo a -> ConsList a -> IO Bool
 testConstraints cfg fi cons  = do
   let fi' = fi { cm = M.fromList cons }
   res <- solve cfg fi'
@@ -334,12 +334,12 @@ testConstraints cfg fi cons  = do
 
 -- run delta debugging on a failing partition
 -- to find minimal set of failing constraints
-getMinFailingCons :: (NFData a, Fixpoint a) => Config -> FInfo a -> IO (ConsList a)
+getMinFailingCons :: (NFData a, Fixpoint a, Show a) => Config -> FInfo a -> IO (ConsList a)
 getMinFailingCons cfg fi = do
   let cons = M.toList $ cm fi
   deltaDebug testConstraints cfg fi cons []
 
-minimizeFQ :: (NFData a, Fixpoint a) => Config -> FInfo a -> IO (Result a)
+minimizeFQ :: (NFData a, Fixpoint a, Show a) => Config -> FInfo a -> IO (Result a)
 minimizeFQ cfg fi = do
   let cfg' = cfg { minimize = False }
   let (_, parts) = partition' Nothing fi
