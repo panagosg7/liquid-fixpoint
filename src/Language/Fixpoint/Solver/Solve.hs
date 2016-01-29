@@ -26,7 +26,7 @@ import           System.Console.CmdArgs.Verbosity (whenLoud)
 import           Control.DeepSeq
 
 --------------------------------------------------------------------------------
-solve :: (NFData a, F.Fixpoint a, Show a) => Config -> S.Solution -> F.SInfo a -> IO (F.Result a)
+solve :: (NFData a, F.Fixpoint a) => Config -> S.Solution -> F.SInfo a -> IO (F.Result a)
 --------------------------------------------------------------------------------
 solve cfg s0 fi = do
     -- donePhase Loud "Worklist Initialize"
@@ -46,7 +46,7 @@ printStats fi w s = putStrLn "\n" >> ppTs [ ptable fi, ptable s, ptable w ]
 
 
 --------------------------------------------------------------------------------
-solve_ :: (NFData a, F.Fixpoint a, Show a)
+solve_ :: (NFData a, F.Fixpoint a)
        => F.SInfo a -> S.Solution -> W.Worklist a
        -> SolveM (F.Result a, Stats)
 --------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ solve_ fi s0 wkl = do
   st      <- stats
   res     <- {-# SCC "sol-result" #-} result wkl s
   let res' = {-# SCC "sol-tidy"   #-} tidyResult res
-  return $!! (traceShow "RESULT = " res', st)
+  return $!! (res', st)
 
 -- | tidyResult ensures we replace the temporary kVarArg names
 --   introduced to ensure uniqueness with the original names
@@ -105,6 +105,7 @@ refineC !_i !s !c
 
 evalshow :: (Show a) => a -> a
 evalshow !x = traceShow "evalShow" x 
+
 lhsPred :: S.Solution -> F.SimpC a -> F.BindEnv -> F.Expr
 lhsPred s c be = F.pAnd pBinds
   where
